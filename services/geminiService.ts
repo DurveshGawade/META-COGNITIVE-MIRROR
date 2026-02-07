@@ -56,7 +56,6 @@ export class GeminiService {
   }
 
   private extractText(response: any): string {
-    // Guidelines: directly return the .text property
     return response.text || "";
   }
 
@@ -159,50 +158,49 @@ export class GeminiService {
   async analyzeMirrorFrame(base64Frame: string, base64Audio: string | null, mode: AppMode, timestamp: string, timestampSeconds: number): Promise<AnalysisEntry> {
     return this.request(async () => {
       const parts: any[] = [
-        { inlineData: { mimeType: 'image/jpeg', data: base64Frame } }
-      ];
-
-      if (base64Audio) {
-        parts.push({ inlineData: { mimeType: 'audio/pcm;rate=16000', data: base64Audio } });
-      }
-
-      parts.push({ text: `ROLE: Forensic Behavioral Auditor. Mode: ${mode}.
-          TASK: Execute simultaneous VISUAL and ACOUSTIC audit of subject engaged in professional activity.
+        { text: `ROLE: Forensic Behavioral Auditor. Mode: ${mode}.
+          TASK: Execute simultaneous VISUAL and ACOUSTIC audit of subject.
           
-          REQUIRED ANALYTICS:
-          1. FOCUS: Track gaze persistence and posture geometry.
-          2. NEURAL LOAD: Infer cognitive load from micro-expressions and blinking patterns.
-          3. DISCREPANCY: Identify mismatch between posture and likely intent.
-          4. ACOUSTIC: Analyze the provided audio stream (if available) for environmental markers, speech content, or industrial noise (e.g., keyboard typing, background speech, alarms).
+          MANDATORY MODAL INSTRUCTIONS:
+          1. AUDIO ANALYTICS (Live_Link): If an audio part is present, analyze the 16kHz PCM stream for environmental markers. Detect typing (KEYBOARD), speech (SPEECH), background fans (ENVIRONMENTAL), or sudden alerts (ALARM). 
+          2. YOU MUST prioritize identifying what is heard in the Live_Link. If any sound is present, "acoustic_alert" MUST NOT be "NONE".
+          3. VISUAL ANALYTICS: Track gaze persistence, focus nodes, and objects.
           
           OUTPUT STRICT JSON:
           {
-            "action": "Clinical description of current behavior",
-            "thinking": "AI forensic monologue about the subject's focus state",
-            "chainOfThought": "Step-by-step logic tracing why conclusions were drawn, incorporating visual and acoustic evidence",
+            "action": "Description of behavior",
+            "thinking": "Neural monologue regarding focus/acoustic findings",
+            "chainOfThought": "Trace of evidence integration",
             "focusLevel": 0-100,
             "isDistracted": boolean,
             "emotion_score": 0.0-1.0,
             "emotion_label": "Flow" | "Stressed" | "Neutral" | "Focused" | "Fatigue",
-            "detected_objects": [{ "label": "Artifact Name", "box_2d": [ymin, xmin, ymax, xmax] }],
-            "acoustic_alert": "ALARM" | "SPEECH" | "KEYBOARD" | "ENVIRONMENTAL" | "NONE",
-            "acoustic_transcript": "Detailed inference of environmental acoustic markers or spoken words"
-          }` });
+            "detected_objects": [{ "label": "Name", "box_2d": [ymin, xmin, ymax, xmax] }],
+            "acoustic_alert": "ALARM" | "SPEECH" | "KEYBOARD" | "ENVIRONMENTAL" | "HUMAN_NOISE" | "NONE",
+            "acoustic_transcript": "Summary of environmental sounds detected in the audio buffer"
+          }` }
+      ];
+
+      parts.push({ inlineData: { mimeType: 'image/jpeg', data: base64Frame } });
+
+      if (base64Audio) {
+        parts.push({ inlineData: { mimeType: 'audio/pcm;rate=16000', data: base64Audio } });
+      }
 
       const response = await this.ai.models.generateContent({
         model: PRO_MODEL, 
         contents: { parts },
         config: { 
           responseMimeType: "application/json",
-          // FIXED: Set thinking budget to 4096. Gemini 3 Pro preview requires a thinking budget > 0.
-          thinkingConfig: { thinkingBudget: 4096 } 
+          // Increased thinking budget for better modality fusion
+          thinkingConfig: { thinkingBudget: 16384 } 
         }
       });
       const text = this.extractText(response);
       const data = this.safeParse(text, { 
-        action: 'Uplink Established', 
-        thinking: 'Initializing neural link.', 
-        chainOfThought: 'Awaiting biometric convergence.', 
+        action: 'Uplink established', 
+        thinking: 'Modality buffer active.', 
+        chainOfThought: 'Awaiting data integration.', 
         focusLevel: 50, 
         isDistracted: false, 
         emotion_score: 0.5, 
