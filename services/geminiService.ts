@@ -161,23 +161,28 @@ export class GeminiService {
         { text: `ROLE: Forensic Behavioral Auditor. Mode: ${mode}.
           TASK: Execute simultaneous VISUAL and ACOUSTIC audit of subject.
           
-          MANDATORY MODAL INSTRUCTIONS:
-          1. AUDIO ANALYTICS (Live_Link): If an audio part is present, analyze the 16kHz PCM stream for environmental markers. Detect typing (KEYBOARD), speech (SPEECH), background fans (ENVIRONMENTAL), or sudden alerts (ALARM). 
-          2. YOU MUST prioritize identifying what is heard in the Live_Link. If any sound is present, "acoustic_alert" MUST NOT be "NONE".
-          3. VISUAL ANALYTICS: Track gaze persistence, focus nodes, and objects.
+          MANDATORY ACOUSTIC PROTOCOL (Live_Link):
+          1. If an audio component is provided, you MUST perform a deep-dive analysis of the 16kHz soundscape.
+          2. Detect and label ANY human-originated sounds (speech, humming, breathing) or industrial artifacts (keyboard clicks, mouse movements, alerts).
+          3. "acoustic_alert" MUST reflect the most prominent sound category.
+          4. "acoustic_transcript" MUST provide a detailed forensic description of the audio buffer (e.g., "Rapid mechanical keyboard typing detected alongside low-frequency hum").
+          
+          VISUAL PROTOCOL:
+          1. Trace gaze vectors and identify objects.
+          2. Report distractions or high-resonance focus states.
           
           OUTPUT STRICT JSON:
           {
             "action": "Description of behavior",
-            "thinking": "Neural monologue regarding focus/acoustic findings",
-            "chainOfThought": "Trace of evidence integration",
+            "thinking": "AI reasoning regarding focus and acoustic markers",
+            "chainOfThought": "Evidence-based logical trace",
             "focusLevel": 0-100,
             "isDistracted": boolean,
             "emotion_score": 0.0-1.0,
             "emotion_label": "Flow" | "Stressed" | "Neutral" | "Focused" | "Fatigue",
             "detected_objects": [{ "label": "Name", "box_2d": [ymin, xmin, ymax, xmax] }],
             "acoustic_alert": "ALARM" | "SPEECH" | "KEYBOARD" | "ENVIRONMENTAL" | "HUMAN_NOISE" | "NONE",
-            "acoustic_transcript": "Summary of environmental sounds detected in the audio buffer"
+            "acoustic_transcript": "Detailed summary of sounds captured in the Live_Link buffer"
           }` }
       ];
 
@@ -192,15 +197,14 @@ export class GeminiService {
         contents: { parts },
         config: { 
           responseMimeType: "application/json",
-          // Increased thinking budget for better modality fusion
           thinkingConfig: { thinkingBudget: 16384 } 
         }
       });
       const text = this.extractText(response);
       const data = this.safeParse(text, { 
         action: 'Uplink established', 
-        thinking: 'Modality buffer active.', 
-        chainOfThought: 'Awaiting data integration.', 
+        thinking: 'Acoustic-visual buffer ready.', 
+        chainOfThought: 'Synchronizing modalities.', 
         focusLevel: 50, 
         isDistracted: false, 
         emotion_score: 0.5, 

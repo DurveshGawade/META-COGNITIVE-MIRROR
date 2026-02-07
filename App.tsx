@@ -103,6 +103,8 @@ const App: React.FC = () => {
     
     // Combine all buffered Float32 chunks
     const totalLength = audioBufferRef.current.reduce((acc, curr) => acc + curr.length, 0);
+    if (totalLength === 0) return null;
+    
     const result = new Int16Array(totalLength);
     let offset = 0;
     for (const chunk of audioBufferRef.current) {
@@ -116,10 +118,11 @@ const App: React.FC = () => {
     // Clear buffer for next cycle
     audioBufferRef.current = [];
 
-    // Encode to base64
+    // Encode to base64 using a loop to avoid stack limits
     const bytes = new Uint8Array(result.buffer);
     let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) {
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
       binary += String.fromCharCode(bytes[i]);
     }
     return btoa(binary);
@@ -216,19 +219,25 @@ const App: React.FC = () => {
     const frame = captureFrame(mirrorVideoRef);
     if (!frame) return;
 
+    // Ensure audio context is running to capture final chunks
+    if (audioContextRef.current?.state === 'suspended') {
+      await audioContextRef.current.resume();
+    }
+
     const audio = isMirrorLive ? getAudioBase64() : null;
 
     isRequestInProgress.current = true;
     try {
       const v = mirrorVideoRef.current;
       const curTime = v ? v.currentTime : 0;
-      const ts = new Date(curTime * 1000).toISOString().substr(11, 8);
+      const ts = isMirrorLive ? new Date().toLocaleTimeString() : new Date(curTime * 1000).toISOString().substr(11, 8);
+      
       const res = await gemini.current.analyzeMirrorFrame(frame, audio, activeMode, ts, curTime);
       
       if (res) {
         setMirrorHistory(prev => [...prev, res]);
         if (res.acoustic_alert && res.acoustic_alert !== 'NONE') {
-          setAcousticLog(prev => [...prev, { timestamp: ts, text: `${res.acoustic_alert}: ${res.acoustic_transcript || 'Pattern matched'}` }].slice(-50));
+          setAcousticLog(prev => [...prev, { timestamp: ts, text: `Live_Link: ${res.acoustic_alert} - ${res.acoustic_transcript || 'Pattern matched'}` }].slice(-50));
         }
       }
     } catch (e: any) { 
@@ -309,6 +318,9 @@ const App: React.FC = () => {
   const toggleScan = async () => {
     if (activeTab === 'mirror') {
       if (!isMirrorAnalyzing) {
+        if (!audioContextRef.current) {
+          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+        }
         if (audioContextRef.current?.state === 'suspended') {
           await audioContextRef.current.resume();
         }
@@ -359,22 +371,12 @@ const App: React.FC = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
           facingMode: "user"
         }, 
         audio: true 
       });
-
-      const track = stream.getVideoTracks()[0];
-      const capabilities = (track as any).getCapabilities?.() || {};
-      if (capabilities.zoom) {
-        try {
-          await (track as any).applyConstraints({ advanced: [{ zoom: capabilities.zoom.min }] });
-        } catch (zoomErr) {
-          console.warn("Could not force minimum zoom:", zoomErr);
-        }
-      }
 
       if (activeTab === 'mirror') {
         if (!audioContextRef.current) {
@@ -387,13 +389,14 @@ const App: React.FC = () => {
         const processor = ctx.createScriptProcessor(4096, 1, 1);
         
         processor.onaudioprocess = (e) => {
-          if (!isMirrorAnalyzingRef.current) return;
+          // BUFFER ALWAYS: Keep final seconds warm regardless of Ref status
           const input = e.inputBuffer.getChannelData(0);
           audioBufferRef.current.push(new Float32Array(input));
           const currentLength = audioBufferRef.current.reduce((acc, curr) => acc + curr.length, 0);
           if (currentLength > 64000) {
             let removed = 0;
-            while (removed < input.length && audioBufferRef.current.length > 0) {
+            const targetRemoval = input.length;
+            while (removed < targetRemoval && audioBufferRef.current.length > 0) {
                removed += audioBufferRef.current[0].length;
                audioBufferRef.current.shift();
             }
