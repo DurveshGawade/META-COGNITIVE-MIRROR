@@ -1,0 +1,8 @@
+{
+  "name": "Meta-Cognitive Mirror",
+  "description": "A high-end, futuristic productivity and multimodal communication platform powered by Gemini 3.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
