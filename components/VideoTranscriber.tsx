@@ -35,7 +35,6 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
   const [transcriptionStyle, setTranscriptionStyle] = useState('Verbatim');
   const [searchQuery, setSearchQuery] = useState('');
   const [captureProgress, setCaptureProgress] = useState(0);
-  const [liveInterimText, setLiveInterimText] = useState("");
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -47,6 +46,8 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const liveStreamRef = useRef<MediaStream | null>(null);
   const frameIntervalRef = useRef<number | null>(null);
+  const liveInterimRef = useRef("");
+  const liveModelInterimRef = useRef("");
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -67,6 +68,32 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
     setTranscription(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
     onAriaToast("ARCHIVE_REMOVED");
+  };
+
+  const stopLiveAudit = useCallback(() => {
+    setIsProcessing(false);
+    setIsLiveActive(false);
+    liveInterimRef.current = "";
+    liveModelInterimRef.current = "";
+    if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
+    if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
+    }
+    if (liveStreamRef.current) {
+      liveStreamRef.current.getTracks().forEach(t => t.stop());
+      liveStreamRef.current = null;
+    }
+    if (videoRef.current) videoRef.current.srcObject = null;
+    sessionPromiseRef.current?.then(s => s.close());
+    sessionPromiseRef.current = null;
+  }, []);
+
+  const handleRestart = () => {
+    stopLiveAudit();
+    setTranscription(null);
+    setIsProcessing(false);
+    onAriaToast("LEXICON_MODEL_RESTARTED");
   };
 
   const captureFrames = async (): Promise<{ frames: string[], duration: number }> => {
@@ -122,6 +149,7 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
   const toggleLiveMode = () => {
     if (isLiveActive) {
       stopLiveAudit();
+      onAriaToast("LIVE_LINK_TERMINATED");
     } else {
       setIsLiveMode(true);
       handleRemoveVideo();
@@ -133,6 +161,8 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
     setIsProcessing(true);
     setIsLiveActive(true);
     onAriaToast("NEURAL_LIVE_UPLINK_START");
+    liveInterimRef.current = "";
+    liveModelInterimRef.current = "";
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { width: 1280, height: 720 } });
@@ -175,33 +205,63 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
           }, 1000);
         },
         onmessage: (msg: any) => {
-          if (msg.serverContent?.inputTranscription) {
+          if (msg.serverContent?.outputTranscription) {
+            const text = msg.serverContent.outputTranscription.text;
+            liveModelInterimRef.current += text;
+          } else if (msg.serverContent?.inputTranscription) {
             const text = msg.serverContent.inputTranscription.text;
-            setLiveInterimText(prev => prev + text);
+            liveInterimRef.current += text;
           }
+          
           if (msg.serverContent?.turnComplete) {
+            const finalizedInput = liveInterimRef.current;
+            const finalizedOutput = liveModelInterimRef.current;
+            
             setTranscription(prev => {
-              const newSeg: TranscriptionSegment = {
-                timestamp: `[LIVE:${new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}]`,
-                startTime: Date.now(),
-                text: liveInterimText,
-                speaker: "USER"
-              };
-              const updatedSegments = [...(prev?.segments || []), newSeg];
+              const newSegments: TranscriptionSegment[] = [];
+              const timeStr = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+              
+              // We capture user input but it won't be displayed in the filtered dialogue log
+              if (finalizedInput) {
+                newSegments.push({
+                  timestamp: `[USER:${timeStr}]`,
+                  startTime: Date.now(),
+                  text: finalizedInput,
+                  speaker: "USER"
+                });
+              }
+              
+              if (finalizedOutput) {
+                newSegments.push({
+                  timestamp: `[SYSTEM:${timeStr}]`,
+                  startTime: Date.now(),
+                  text: finalizedOutput,
+                  speaker: "SYSTEM"
+                });
+              }
+
+              if (newSegments.length === 0) return prev;
+
+              const updatedSegments = [...(prev?.segments || []), ...newSegments];
               return {
-                fullText: (prev?.fullText || "") + " " + liveInterimText,
+                fullText: (prev?.fullText || "") + " " + finalizedInput + " " + finalizedOutput,
                 segments: updatedSegments,
                 summary: prev?.summary || "Live audit in progress...",
                 keywords: prev?.keywords || [],
                 sentiment: "Active"
               };
             });
-            setLiveInterimText("");
+            
+            liveInterimRef.current = "";
+            liveModelInterimRef.current = "";
           }
         },
         onerror: (e: any) => onAriaToast("LIVE_LINK_ERROR"),
-        onclose: () => stopLiveAudit()
-      });
+        onclose: () => {
+            stopLiveAudit();
+            onAriaToast("LIVE_LINK_TERMINATED");
+        }
+      }, selectedLanguage);
 
     } catch (e) {
       console.error(e);
@@ -210,24 +270,12 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
     }
   };
 
-  const stopLiveAudit = () => {
-    setIsProcessing(false);
-    setIsLiveActive(false);
-    setLiveInterimText("");
-    if (frameIntervalRef.current) clearInterval(frameIntervalRef.current);
-    if (audioContextRef.current) audioContextRef.current.close();
-    if (liveStreamRef.current) {
-      liveStreamRef.current.getTracks().forEach(t => t.stop());
-      liveStreamRef.current = null;
-    }
-    if (videoRef.current) videoRef.current.srcObject = null;
-    sessionPromiseRef.current?.then(s => s.close());
-    onAriaToast("LIVE_LINK_TERMINATED");
-  };
-
   const handleTranscribe = async () => {
     if (isLiveMode) {
-      if (isLiveActive) stopLiveAudit();
+      if (isLiveActive) {
+          stopLiveAudit();
+          onAriaToast("LIVE_LINK_TERMINATED");
+      }
       else startLiveAudit();
       return;
     }
@@ -284,7 +332,7 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
   const seekToTimestamp = (timestamp: string) => {
     if (!videoRef.current || isLiveMode) return;
     const cleanTs = timestamp.replace(/[\[\]]/g, '').trim();
-    if (cleanTs.includes('LIVE')) return;
+    if (cleanTs.includes('LIVE') || cleanTs.includes('USER') || cleanTs.includes('SYSTEM')) return;
     
     const parts = cleanTs.split(':').map(Number);
     let totalSeconds = 0;
@@ -298,7 +346,8 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
   };
 
   const filteredSegments = useMemo(() => {
-    const segments = transcription?.segments || [];
+    // We filter out 'USER' messages to only show the translated 'SYSTEM' transcript or general logs
+    const segments = (transcription?.segments || []).filter(s => s.speaker !== 'USER');
     if (!searchQuery) return segments;
     return segments.filter(s => 
       (s.text || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -350,6 +399,14 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
                >
                  Live Sensor Mode
                </button>
+               <div className="w-px h-6 bg-white/10 my-auto mx-1" />
+               <button 
+                 onClick={handleRestart}
+                 className="px-6 py-2 rounded-xl text-red-400 text-[9px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all flex items-center gap-2 group"
+               >
+                 <svg className="w-3 h-3 group-hover:rotate-180 transition-transform duration-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                 Restart System
+               </button>
             </div>
 
             <AnimatePresence>
@@ -374,19 +431,19 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
               )}
             </AnimatePresence>
 
-            {!isLiveMode && (
-              <div className="flex gap-4 bg-white/5 p-2 rounded-2xl border border-white/5 backdrop-blur-xl">
-                <select 
-                  value={selectedLanguage} 
-                  onChange={e => setSelectedLanguage(e.target.value)} 
-                  className="bg-black border border-white/10 rounded-xl px-4 py-2 text-[10px] font-black uppercase text-white outline-none focus:border-emerald-500 transition-all cursor-pointer"
-                >
-                  <option>English</option>
-                  <option>Spanish</option>
-                  <option>French</option>
-                  <option>German</option>
-                  <option>Japanese</option>
-                </select>
+            <div className="flex gap-4 bg-white/5 p-2 rounded-2xl border border-white/5 backdrop-blur-xl">
+              <select 
+                value={selectedLanguage} 
+                onChange={e => setSelectedLanguage(e.target.value)} 
+                className="bg-black border border-white/10 rounded-xl px-4 py-2 text-[10px] font-black uppercase text-white outline-none focus:border-emerald-500 transition-all cursor-pointer"
+              >
+                <option>English</option>
+                <option>Spanish</option>
+                <option>French</option>
+                <option>German</option>
+                <option>Japanese</option>
+              </select>
+              {!isLiveMode && (
                 <select 
                   value={transcriptionStyle} 
                   onChange={e => setTranscriptionStyle(e.target.value)} 
@@ -396,8 +453,8 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
                   <option>Clean</option>
                   <option>Summary Only</option>
                 </select>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
 
@@ -433,7 +490,7 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
                        <span className="animate-pulse">{isLiveActive ? "TERMINATE LIVE AUDIT" : "SYNTHESIZING..."}</span>
                        {captureProgress > 0 && !isLiveMode && <span className="text-[10px] tracking-[0.2em] font-mono">INGESTION: {captureProgress}%</span>}
                     </div>
-                 ) : isLiveMode ? "INITIALIZE LIVE SENSOR" : "INITIATE ARCHIVE AUDIT"}
+                 ) : isLiveMode ? (isLiveActive ? "TERMINATE LIVE AUDIT" : "INITIALIZE LIVE SENSOR") : "INITIATE ARCHIVE AUDIT"}
                </button>
                
                {!isLiveMode && (
@@ -478,7 +535,7 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-4">
                       <span className={`w-2 h-2 rounded-full ${isProcessing ? 'bg-emerald-500 shadow-[0_0_10px_#10b981] animate-pulse' : 'bg-white/20'}`} />
-                      <h3 className="text-xs font-black text-white uppercase tracking-[0.3em]">Neural Transcript Feed</h3>
+                      <h3 className="text-xs font-black text-white uppercase tracking-[0.3em]">Neural Transcript Feed ({selectedLanguage})</h3>
                     </div>
                     <div className="flex gap-4">
                       {transcription && (
@@ -507,7 +564,7 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
                </div>
 
                <div className="flex-1 overflow-y-auto custom-scrollbar p-10 relative z-10 scroll-smooth">
-                  {transcription || liveInterimText ? (
+                  {transcription ? (
                     <div className="space-y-12">
                       {showSummary && (
                         <div className="grid md:grid-cols-2 gap-8">
@@ -548,23 +605,17 @@ const VideoTranscriber: React.FC<VideoTranscriberProps> = ({ onAriaToast }) => {
                                  <div className="w-24 shrink-0 flex flex-col gap-2 pt-1">
                                     <span className="text-[11px] font-mono text-emerald-500/40 font-bold uppercase tracking-widest group-hover:text-emerald-400 transition-colors">[{seg.timestamp}]</span>
                                     {seg.speaker && (
-                                      <span className="text-[8px] font-black text-white/20 uppercase group-hover:text-white/40">{seg.speaker}</span>
+                                      <span className={`text-[8px] font-black uppercase group-hover:opacity-100 transition-all ${seg.speaker === 'SYSTEM' ? 'text-cyan-400/60' : 'text-white/20'}`}>{seg.speaker}</span>
                                     )}
                                  </div>
-                                 <div className="flex-1 p-5 rounded-2xl bg-white/[0.01] border border-transparent group-hover:border-white/5 group-hover:bg-white/[0.03] transition-all">
-                                    <p className="text-sm text-white/70 leading-relaxed group-hover:text-white transition-colors">{seg.text}</p>
+                                 <div className={`flex-1 p-5 rounded-2xl border transition-all ${seg.speaker === 'SYSTEM' ? 'bg-cyan-500/5 border-cyan-500/10 group-hover:border-cyan-500/30' : 'bg-white/[0.01] border-transparent group-hover:border-white/5 group-hover:bg-white/[0.03]'}`}>
+                                    <p className={`text-sm leading-relaxed transition-colors ${seg.speaker === 'SYSTEM' ? 'text-cyan-100/70 group-hover:text-cyan-50' : 'text-white/70 group-hover:text-white'}`}>{seg.text}</p>
                                  </div>
                               </motion.div>
                             ))}
-                            {liveInterimText && (
-                              <div className="flex gap-6 animate-pulse">
-                                <div className="w-24 shrink-0 flex flex-col gap-2 pt-1">
-                                  <span className="text-[11px] font-mono text-emerald-400 font-bold uppercase tracking-widest">[LIVE]</span>
-                                  <span className="text-[8px] font-black text-white/40 uppercase">USER</span>
-                                </div>
-                                <div className="flex-1 p-5 rounded-2xl bg-emerald-500/5 border border-emerald-500/20">
-                                  <p className="text-sm text-emerald-100 leading-relaxed">{liveInterimText}</p>
-                                </div>
+                            {isLiveActive && filteredSegments.length === 0 && !isProcessing && (
+                              <div className="h-40 flex items-center justify-center opacity-20 uppercase text-[9px] tracking-widest text-center italic">
+                                Listening for acoustic forensic patterns...
                               </div>
                             )}
                           </div>

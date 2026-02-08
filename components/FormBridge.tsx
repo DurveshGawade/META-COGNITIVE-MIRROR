@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DocumentAnalysis, FormObligation } from '../types';
@@ -32,6 +33,10 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
   const [glossErrors, setGlossErrors] = useState<Record<string, boolean>>({});
   const [isPlaying, setIsPlaying] = useState(false);
   const [acknowledgedClauses, setAcknowledgedClauses] = useState<Set<string>>(new Set());
+  
+  // Paste Data States
+  const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
+  const [textInput, setTextInput] = useState("");
 
   const gemini = useMemo(() => new GeminiService(), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -71,6 +76,27 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
     }
   };
 
+  const handlePasteSubmit = async () => {
+    if (!textInput.trim()) return;
+    
+    const session = ++analysisSessionRef.current;
+    setIsPasteModalOpen(false);
+    setIsAnalyzing(true);
+    onAriaToast("INGESTING_PASTED_STREAM");
+
+    try {
+      const res = await gemini.analyzeTextDocument(textInput);
+      if (session !== analysisSessionRef.current) return;
+      setAnalysis(res);
+      setIsAnalyzing(false);
+      onAriaToast("PASTE_PARITY_ESTABLISHED");
+    } catch (err: any) {
+      if (session !== analysisSessionRef.current) return;
+      onAriaToast(err?.message?.includes('429') ? "QUOTA_EXCEEDED" : "PASTE_INGESTION_FAILED");
+      setIsAnalyzing(false);
+    }
+  };
+
   const handleRemove = useCallback(() => {
     analysisSessionRef.current++;
     synthesisSessionRef.current++;
@@ -82,6 +108,7 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
     setIsPlaying(false);
     setActiveGlossIdx(0);
     setAcknowledgedClauses(new Set());
+    setTextInput("");
     if (fileInputRef.current) fileInputRef.current.value = '';
     onAriaToast("DOCUMENT_REMOVED");
   }, [onAriaToast]);
@@ -102,7 +129,7 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
           }
           return prev + 1;
         });
-      }, 2400); // Terminal tuned for maximum clarity
+      }, 3000); // Calibrated for maximum word visibility
     }
     return () => clearInterval(interval);
   }, [isPlaying, selectedObligation]);
@@ -111,7 +138,12 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
     if (session !== synthesisSessionRef.current) return;
     setGlossErrors(prev => ({ ...prev, [gloss]: false }));
     try {
-      const url = await gemini.generateSignImage(`Linguistically perfect sign for "${gloss}". Style: High-end 3D render, dark obsidian glass humanoid with cyan internal filaments, clear hand articulation, waist-up framing.`);
+      // HIGH VISIBILITY PROMPT: Defined silhouette, rim lights, front perspective
+      const url = await gemini.generateSignImage(`Anatomically precise sign language gesture for "${gloss}" in a formal document context. 
+      Style: High-fidelity 3D render, dark obsidian humanoid with vibrant glowing cyan internal filaments. 
+      Lighting: Professional studio lighting with strong rim lights to define silhouette against black. Vivid highlights on hand articulation. 
+      Framing: Direct frontal waist-up view, hands at center-chest or mouth height. Total clarity.`);
+      
       if (session !== synthesisSessionRef.current) return;
       setGlossImages(prev => ({ ...prev, [gloss]: url }));
     } catch (e) {
@@ -124,7 +156,7 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
   useEffect(() => {
     if (selectedObligation) {
       const currentSession = ++synthesisSessionRef.current;
-      setActiveGlossIdx(0);
+      setActiveIdx(0);
       setIsPlaying(false);
       
       const loadGlosses = async () => {
@@ -142,6 +174,10 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
       loadGlosses();
     }
   }, [selectedObligation, loadGloss, onAriaToast]);
+
+  const setActiveIdx = (idx: number) => {
+    setActiveGlossIdx(idx);
+  };
 
   const toggleAcknowledge = (title: string) => {
     setAcknowledgedClauses(prev => {
@@ -167,10 +203,10 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
         color="#8b5cf6"
       />
 
-      <section className="flex flex-col gap-12">
-        <div className="flex justify-between items-end">
+      <section className="flex flex-col gap-12 mb-32">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-10">
           <SectionHeader title="SOURCE DOCUMENT:" subtitle="Neural Ingestion Stream" color="#8b5cf6" />
-          <div className="flex items-center gap-4 mb-12">
+          <div className="flex flex-col items-end gap-4 mb-12 w-full md:w-auto">
             <input 
               ref={fileInputRef}
               type="file" 
@@ -181,16 +217,28 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
             
             <AnimatePresence mode="wait">
               {!analysis && !isAnalyzing ? (
-                <motion.button 
-                  key="upload-btn"
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-12 py-6 rounded-[32px] bg-white text-black font-black uppercase tracking-[0.3em] text-sm hover:scale-105 transition-all shadow-[0_0_50px_rgba(255,255,255,0.1)]"
+                <motion.div 
+                  key="initial-options"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="flex flex-col sm:flex-row items-center gap-4 w-full"
                 >
-                  UPLOAD FOR FORENSIC PARITY
-                </motion.button>
+                  <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full sm:w-auto px-12 py-6 rounded-[32px] bg-white text-black font-black uppercase tracking-[0.3em] text-xs hover:scale-105 transition-all shadow-[0_0_50px_rgba(255,255,255,0.1)] flex items-center justify-center gap-3"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                    UPLOAD ARCHIVE
+                  </button>
+                  <button 
+                    onClick={() => setIsPasteModalOpen(true)}
+                    className="w-full sm:w-auto px-12 py-6 rounded-[32px] bg-violet-600 text-white font-black uppercase tracking-[0.3em] text-xs hover:scale-105 transition-all shadow-[0_0_50px_rgba(139,92,246,0.2)] flex items-center justify-center gap-3"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+                    PASTE DOCUMENT DATA
+                  </button>
+                </motion.div>
               ) : (
                 <motion.div 
                   key="active-controls"
@@ -203,13 +251,19 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
                     onClick={() => fileInputRef.current?.click()}
                     className="px-6 py-3 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase text-white/60 hover:text-white hover:border-violet-500/50 transition-all tracking-widest"
                   >
-                    Load New Archive
+                    Load New
+                  </button>
+                  <button 
+                    onClick={() => setIsPasteModalOpen(true)}
+                    className="px-6 py-3 rounded-2xl bg-white/5 border border-white/10 text-[10px] font-black uppercase text-white/60 hover:text-white hover:border-violet-500/50 transition-all tracking-widest"
+                  >
+                    Paste New
                   </button>
                   <button 
                     onClick={handleRemove}
                     className="px-6 py-3 rounded-2xl bg-red-500/10 border border-red-500/30 text-[10px] font-black uppercase text-red-400 hover:bg-red-500 hover:text-white transition-all tracking-widest"
                   >
-                    Shred Session
+                    Shred
                   </button>
                   <div className="w-px h-8 bg-white/10 mx-1" />
                   <button 
@@ -217,7 +271,7 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
                     className="px-8 py-3 rounded-2xl bg-violet-600 text-white font-black uppercase text-[10px] tracking-widest shadow-lg shadow-violet-600/20 hover:scale-105 transition-all flex items-center gap-2"
                   >
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                    Reset Bridge
+                    Reset
                   </button>
                 </motion.div>
               )}
@@ -320,7 +374,7 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
              </div>
           </div>
 
-          {/* AVATAR PERFORMANCE MODULE */}
+          {/* PERFORMANCE HUD STAGE */}
           <div className="lg:col-span-5 flex flex-col gap-10">
              <div className="relative aspect-square liquid-glass rounded-[72px] overflow-hidden bg-black/60 border border-white/10 shadow-3xl flex flex-col items-center justify-center">
                 <div className="absolute inset-0 forensic-grid opacity-[0.1] pointer-events-none" />
@@ -343,7 +397,7 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
                          {activeGloss && glossImages[activeGloss] ? (
                            <img 
                              src={glossImages[activeGloss]} 
-                             className="max-w-full max-h-full object-contain drop-shadow-[0_0_120px_rgba(139,92,246,0.5)] brightness-125" 
+                             className="max-w-[90%] max-h-[90%] object-contain drop-shadow-[0_0_120px_rgba(139,92,246,0.6)] brightness-125" 
                              alt={activeGloss}
                            />
                          ) : hasActiveGlossError ? (
@@ -382,7 +436,7 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
                           layout
                           className="p-10 rounded-[48px] bg-black/80 backdrop-blur-3xl border-2 border-violet-500/40 text-center shadow-[0_0_50px_rgba(139,92,246,0.2)]"
                         >
-                           <span className="text-[12px] font-black text-violet-500/60 uppercase tracking-[0.5em] block mb-4">Linguistic Token {activeGlossIdx + 1}/{selectedObligation.glosses.length}</span>
+                           <span className="text-[12px] font-black text-violet-500/60 uppercase tracking-[0.5em] block mb-4">Linguistic Anchor {activeGlossIdx + 1}/{selectedObligation.glosses.length}</span>
                            <h4 className="text-6xl font-black italic uppercase text-white tracking-tighter leading-none drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">"{activeGloss || "..."}"</h4>
                         </motion.div>
                      </div>
@@ -405,8 +459,8 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
                       </span>
                     )}
                   </div>
-                  <div className="p-8 rounded-[32px] bg-black/40 border border-white/5 flex-1">
-                    <p className="text-sm text-white/50 leading-relaxed italic line-clamp-8">"{selectedObligation.originalText}"</p>
+                  <div className="p-8 rounded-[32px] bg-black/40 border border-white/5 flex-1 overflow-y-auto max-h-[250px] custom-scrollbar">
+                    <p className="text-sm text-white/50 leading-relaxed italic">"{selectedObligation.originalText}"</p>
                   </div>
                   <div className="flex flex-col gap-4">
                      <button 
@@ -443,6 +497,66 @@ const FormBridge: React.FC<FormBridgeProps> = ({ onAriaToast }) => {
           </div>
         </div>
       </section>
+
+      {/* PASTE DATA MODAL */}
+      <AnimatePresence>
+        {isPasteModalOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[10000] flex items-center justify-center p-4 md:p-12 bg-black/90 backdrop-blur-2xl"
+          >
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 30 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 30 }}
+              className="w-full max-w-4xl liquid-glass rounded-[56px] border border-violet-500/20 shadow-[0_0_100px_rgba(0,0,0,1)] flex flex-col overflow-hidden"
+            >
+              <div className="p-8 md:p-12 border-b border-white/5 flex justify-between items-center">
+                 <div className="space-y-2">
+                    <h2 className="text-[10px] font-black uppercase text-violet-400 tracking-[0.4em] font-mono">PASTE_DATA_UPLINK</h2>
+                    <h3 className="text-3xl md:text-5xl font-black italic uppercase text-white tracking-tighter leading-none">FORENSIC <span className="text-violet-500">PASTE</span></h3>
+                 </div>
+                 <button 
+                   onClick={() => setIsPasteModalOpen(false)}
+                   className="p-4 rounded-full border border-white/10 text-white/40 hover:text-white hover:border-violet-500 transition-all"
+                 >
+                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                 </button>
+              </div>
+
+              <div className="p-8 md:p-12 flex-1 flex flex-col gap-8 bg-black/40">
+                 <div className="relative flex-1 group">
+                    <div className="absolute inset-0 forensic-grid opacity-[0.03] pointer-events-none" />
+                    <textarea 
+                      value={textInput}
+                      onChange={e => setTextInput(e.target.value)}
+                      placeholder="Paste contract clauses, regulatory text, or mission-critical data here for word-by-word forensic parity reconstruction..."
+                      className="w-full h-[400px] bg-white/[0.02] border border-white/10 rounded-[32px] p-10 text-lg md:text-xl text-white/80 font-mono focus:outline-none focus:border-violet-500/50 transition-all resize-none custom-scrollbar placeholder:text-white/10"
+                    />
+                 </div>
+                 
+                 <div className="flex gap-4">
+                    <button 
+                      onClick={() => setTextInput("")}
+                      className="px-10 py-6 rounded-[32px] bg-white/5 border border-white/10 text-white/40 font-black uppercase text-[10px] tracking-widest hover:bg-white/10 transition-all"
+                    >
+                      CLEAR BUFFER
+                    </button>
+                    <button 
+                      onClick={handlePasteSubmit}
+                      disabled={!textInput.trim()}
+                      className="flex-1 py-6 rounded-[32px] bg-violet-600 text-white font-black uppercase text-xs tracking-[0.3em] shadow-2xl shadow-violet-600/30 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-30 disabled:hover:scale-100"
+                    >
+                      INITIATE PARITY SYNC
+                    </button>
+                 </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AgenticPulse isAnalyzing={isAnalyzing || isPlaying} intensity={isAnalyzing ? 5 : 2} />
     </div>

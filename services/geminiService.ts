@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { 
   AnalysisEntry, SignInterpretation, SignSymbol, StudioSettings, 
@@ -408,6 +409,7 @@ export class GeminiService {
           { inlineData: { mimeType, data: base64Data } },
           { text: `ROLE: Forensic Document Parity Auditor.
           TASK: Extract the most critical obligations, rights, and clauses from this document.
+          PARITY REQUIREMENT: You MUST isolate and extract ALL "Parity-Critical" vocabulary. These are terms that are technically dense, legally binding, or mission-critical to the user's understanding of the agreement.
           OUTPUT STRICT JSON:
           {
             "obligations": [{
@@ -415,7 +417,7 @@ export class GeminiService {
               "simplifiedMeaning": "Plain English summary",
               "originalText": "Verbatim clause text",
               "riskLevel": "LOW" | "MEDIUM" | "HIGH",
-              "glosses": ["TOKENS"]
+              "glosses": ["PARITY_CRITICAL_WORD_1", "PARITY_CRITICAL_WORD_2"]
             }],
             "ambiguityLevel": 1-10,
             "professionalAdviceNeeded": boolean
@@ -423,7 +425,37 @@ export class GeminiService {
         ]},
         config: { 
           responseMimeType: "application/json",
-          thinkingConfig: { thinkingBudget: 2048 }
+          thinkingConfig: { thinkingBudget: 4096 }
+        }
+      });
+      const text = this.extractText(response);
+      return this.safeParse(text, { obligations: [], ambiguityLevel: 1, professionalAdviceNeeded: false });
+    });
+  }
+
+  async analyzeTextDocument(textInput: string): Promise<DocumentAnalysis> {
+    return this.request(async () => {
+      const response = await this.ai.models.generateContent({
+        model: PRO_MODEL,
+        contents: `ROLE: Forensic Document Parity Auditor.
+          TASK: Extract the most critical obligations, rights, and clauses from the following text data.
+          INPUT TEXT: "${textInput}"
+          PARITY REQUIREMENT: You MUST isolate and extract ALL "Parity-Critical" vocabulary for sign language conversion. These are terms that are technically dense, legally binding, or mission-critical.
+          OUTPUT STRICT JSON:
+          {
+            "obligations": [{
+              "title": "Clear Clause Title",
+              "simplifiedMeaning": "Plain English summary",
+              "originalText": "Verification context from input",
+              "riskLevel": "LOW" | "MEDIUM" | "HIGH",
+              "glosses": ["PARITY_CRITICAL_WORD_1", "PARITY_CRITICAL_WORD_2"]
+            }],
+            "ambiguityLevel": 1-10,
+            "professionalAdviceNeeded": boolean
+          }`,
+        config: { 
+          responseMimeType: "application/json",
+          thinkingConfig: { thinkingBudget: 4096 }
         }
       });
       const text = this.extractText(response);
@@ -573,7 +605,7 @@ export class GeminiService {
         model: TTS_MODEL,
         contents: [{ parts: [{ text }] }],
         config: {
-          responseModalities: [Modality.AUDIO],
+          responseModalalities: [Modality.AUDIO],
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName } },
           },
@@ -590,22 +622,23 @@ export class GeminiService {
       model: LIVE_MODEL,
       callbacks,
       config: {
-        responseModalities: [Modality.AUDIO],
+        responseModalalities: [Modality.AUDIO],
         systemInstruction: `ROLE: Crisis Emergency Assistant. Focus on high-speed sign-to-speech translation.`,
       }
     });
   }
 
-  async connectLiveTranscription(callbacks: any) {
+  async connectLiveTranscription(callbacks: any, language: string = 'English') {
     return this.ai.live.connect({
       model: LIVE_MODEL,
       callbacks,
       config: {
-        responseModalities: [Modality.AUDIO],
+        responseModalalities: [Modality.AUDIO],
         inputAudioTranscription: {},
+        outputAudioTranscription: {},
         systemInstruction: `ROLE: Senior Acoustic Forensic Auditor. 
-        TASK: Perform real-time verbatim transcription of user speech. 
-        MANDATORY: Maintain absolute accuracy. Focus on professional context.`,
+        TASK: Perform real-time verbatim transcription of user speech and system environment in ${language}. 
+        MANDATORY: Maintain absolute accuracy. Focus on professional context. Output only the transcript in ${language}.`,
       }
     });
   }
