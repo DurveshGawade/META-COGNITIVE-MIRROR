@@ -1,7 +1,27 @@
 # Meta-Cognitive-Sign-Bridge
 Forensic-grade multimodal AI platform for the DHH community—real-time sign language translation, emergency communication, and legal document accessibility powered by Gemini 3 Pro's reasoning engine.
 
+An advanced multimodal ecosystem built with the **Gemini 3 Pro and Flash API**, designed to bridge systemic communication and safety barriers for the global Deaf and Hard-of-Hearing (DHH) community. Moving beyond basic translation, Meta Mirror introduces agentic vision, clinical auditing, and long-horizon memory tracking across five specialized neural nodes.
 
+## 🔗 Project Links
+* **📺 Video Demo:** [Watch the Walkthrough on YouTube](https://youtu.be/j9HJV-C4hhY)
+* **🚀 Live App Deployment:** [Try the Application (Google AI Studio)](https://ai.studio/apps/drive/1gkKShi6slJx0O3pO1aV0f23vFSzYnD_1?fullscreenApplet=true)
+
+---
+
+## 💡 The Problem & Core Inspiration
+Over 70 million people worldwide rely on sign languages like ASL, ISL, and CSL as their primary mode of communication, yet they face life-threatening context gaps that existing technology ignores. Traditional translation apps strip out critical environmental context, hand velocity, room dynamics, and personal emotional intent. Meta Mirror operates as a real-time multimodal co-pilot to return true situational and emotional fidelity to sign interpretation.
+
+---
+
+## 🛠️ Tech Stack & Gemini 3 Implementation
+* **UI/Frontend Framework:** React.js Engine
+* **Core Intelligence:** **Gemini 3 Pro** (Complex context/long-horizon reasoning) & **Gemini 3 Flash** (Sub-second streaming translation).
+* **Thought Signatures:** Continuous circulation of `thought_signature` protocol tokens across API turns to pass and retain lightweight memory state seamlessly across different navigation tabs.
+* **1M+ Token Context Window:** Used for forensic multi-hour conversation archiving and cross-modal session grounding.
+* **Agentic Vision Integration:** Utilizes automated visual parsing to programmatically crop, zoom, and analyze details in a room when targeted by user gesture vectors.
+
+---
 
 # Full Project Gallery
 
